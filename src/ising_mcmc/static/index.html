@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Ising Model Simulation</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        canvas {
+            border: 1px solid #ccc;
+        }
+        .stats {
+            margin-top: 10px;
+            display: flex;
+            gap: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>2D Ising Model Simulation</h1>
+    
+    <div class="controls">
+        <label>N: <input type="number" id="n-input" value="50" min="10" max="200"></label>
+        <label>T: <input type="number" id="t-input" value="2.27" step="0.01" min="0.1"></label>
+        <button onclick="initModel()">Initialize</button>
+        <button onclick="stepModel()">Step (1000)</button>
+        <button id="auto-btn" onclick="toggleAuto()">Start Auto</button>
+    </div>
+
+    <canvas id="grid-canvas" width="500" height="500"></canvas>
+
+    <div class="stats">
+        <div>Energy: <span id="energy-display">-</span></div>
+        <div>Magnetization: <span id="mag-display">-</span></div>
+        <div>T: <span id="temp-display">-</span></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('grid-canvas');
+        const ctx = canvas.getContext('2d');
+        let autoInterval = null;
+
+        async function initModel() {
+            const N = parseInt(document.getElementById('n-input').value);
+            const T = parseFloat(document.getElementById('t-input').value);
+            
+            await fetch('/api/init', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({N, T})
+            });
+            
+            updateState();
+        }
+
+        async function stepModel() {
+            await fetch('/api/step', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({steps: 1000})
+            });
+            updateState();
+        }
+
+        async function updateState() {
+            const response = await fetch('/api/state');
+            if (!response.ok) return;
+            
+            const data = await response.json();
+            renderGrid(data.config);
+            document.getElementById('energy-display').textContent = data.energy.toFixed(2);
+            document.getElementById('mag-display').textContent = data.magnetization.toFixed(4);
+            document.getElementById('temp-display').textContent = data.T.toFixed(2);
+        }
+
+        function renderGrid(config) {
+            const N = config.length;
+            const cellSize = canvas.width / N;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            for (let i = 0; i < N; i++) {
+                for (let j = 0; j < N; j++) {
+                    if (config[i][j] === 1) {
+                        ctx.fillStyle = 'black';
+                        ctx.fillRect(j * cellSize, i * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+        }
+
+        function toggleAuto() {
+            const btn = document.getElementById('auto-btn');
+            if (autoInterval) {
+                clearInterval(autoInterval);
+                autoInterval = null;
+                btn.textContent = "Start Auto";
+            } else {
+                autoInterval = setInterval(stepModel, 100);
+                btn.textContent = "Stop Auto";
+            }
+        }
+        
+        // Update T when input changes if model is running
+        document.getElementById('t-input').addEventListener('change', async (e) => {
+            const T = parseFloat(e.target.value);
+            await fetch('/api/params', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({T})
+            });
+            // Don't necessarily update state immediately, let the next step do it or user interaction
+        });
+
+        // Initial load
+        initModel();
+    </script>
+</body>
+</html>
