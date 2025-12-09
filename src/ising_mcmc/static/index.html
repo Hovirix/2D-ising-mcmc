@@ -52,14 +52,26 @@
         const canvas = document.getElementById('grid-canvas');
         const ctx = canvas.getContext('2d');
         let autoInterval = null;
+        let sessionId = null;
+
+        async function getSession() {
+            const response = await fetch('/api/session', { method: 'POST' });
+            const data = await response.json();
+            sessionId = data.session_id;
+        }
 
         async function initModel() {
+            if (!sessionId) await getSession();
+            
             const N = parseInt(document.getElementById('n-input').value);
             const T = parseFloat(document.getElementById('t-input').value);
             
             await fetch('/api/init', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': sessionId
+                },
                 body: JSON.stringify({N, T})
             });
             
@@ -67,16 +79,23 @@
         }
 
         async function stepModel() {
+            if (!sessionId) return;
             await fetch('/api/step', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': sessionId
+                },
                 body: JSON.stringify({steps: 1000})
             });
             updateState();
         }
 
         async function updateState() {
-            const response = await fetch('/api/state');
+            if (!sessionId) return;
+            const response = await fetch('/api/state', {
+                headers: { 'X-Session-ID': sessionId }
+            });
             if (!response.ok) return;
             
             const data = await response.json();
@@ -116,10 +135,14 @@
         
         // Update T when input changes if model is running
         document.getElementById('t-input').addEventListener('change', async (e) => {
+            if (!sessionId) return;
             const T = parseFloat(e.target.value);
             await fetch('/api/params', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': sessionId
+                },
                 body: JSON.stringify({T})
             });
             // Don't necessarily update state immediately, let the next step do it or user interaction

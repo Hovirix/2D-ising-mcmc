@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 import os
+import uuid
 
 from .ising_model import IsingModel
 
@@ -17,7 +18,16 @@ class SimulationState:
         self.magnetization_history: List[float] = []
 
 
-state = SimulationState()
+# Store states in memory keyed by session_id
+sessions: Dict[str, SimulationState] = {}
+
+
+def get_session(x_session_id: str = Header(None)) -> SimulationState:
+    if not x_session_id:
+        raise HTTPException(status_code=400, detail="X-Session-ID header required")
+    if x_session_id not in sessions:
+        sessions[x_session_id] = SimulationState()
+    return sessions[x_session_id]
 
 
 class InitParams(BaseModel):
@@ -33,8 +43,15 @@ class UpdateParams(BaseModel):
     T: float
 
 
+@app.post("/api/session")
+def create_session():
+    session_id = str(uuid.uuid4())
+    sessions[session_id] = SimulationState()
+    return {"session_id": session_id}
+
+
 @app.post("/api/init")
-def init_model(params: InitParams):
+def init_model(params: InitParams, state: SimulationState = Depends(get_session)):
     state.model = IsingModel(params.N, params.T)
     state.energy_history = [state.model.cost()]
     state.magnetization_history = [state.model.magnetization()]
@@ -42,7 +59,7 @@ def init_model(params: InitParams):
 
 
 @app.post("/api/step")
-def step(params: StepParams):
+def step(params: StepParams, state: SimulationState = Depends(get_session)):
     if state.model is None:
         raise HTTPException(status_code=400, detail="Model not initialized")
 
@@ -56,7 +73,7 @@ def step(params: StepParams):
 
 
 @app.get("/api/state")
-def get_state():
+def get_state(state: SimulationState = Depends(get_session)):
     if state.model is None:
         raise HTTPException(status_code=400, detail="Model not initialized")
 
@@ -66,13 +83,25 @@ def get_state():
         "magnetization": state.model.magnetization(),
         "T": state.model.T,
         "N": state.model.N,
+    }
+
+
+@app.get("/api/stats")
+def get_stats(state: SimulationState = Depends(get_session)):
+    if state.model is None:
+        raise HTTPException(status_code=400, detail="Model not initialized")
+        
+    return {
+        "energy": state.model.cost(),
+        "magnetization": state.model.magnetization(),
+        "T": state.model.T,
         "energy_history": state.energy_history,
         "magnetization_history": state.magnetization_history,
     }
 
 
 @app.post("/api/params")
-def update_params(params: UpdateParams):
+def update_params(params: UpdateParams, state: SimulationState = Depends(get_session)):
     if state.model is None:
         raise HTTPException(status_code=400, detail="Model not initialized")
 
